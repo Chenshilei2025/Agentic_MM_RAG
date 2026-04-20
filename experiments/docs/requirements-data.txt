@@ -1,0 +1,23 @@
+# Heavy dependencies for the Round-5 data-processing layer.
+# Base system (orchestrator, DA, sub-agents) does NOT need these.
+# Install only when you want to run the real data pipeline on GPU.
+
+# PDF parsing
+pdfplumber>=0.10.0
+pymupdf>=1.23.0               # better image extraction; optional but recommended
+paddleocr>=2.7.0              # OCR for figures / charts
+paddlepaddle>=2.5.0            # PaddleOCR backend
+transformers>=4.40.0          # LayoutLMv3 + CLIP
+pillow>=10.0.0
+
+# Video parsing
+scenedetect>=0.6.3            # scene boundary detection
+openai-whisper>=20231117      # ASR
+opencv-python>=4.9.0.80       # keyframe I/O (optional; we fallback to ffmpeg)
+ffmpeg-python>=0.2.0          # CLI fallback
+
+# Embedders
+FlagEmbedding>=1.2.10         # BGE encoders
+torch>=2.1.0                  # required by transformers + FlagEmbedding
+
+# MADQA loader has no extra deps beyond stdlib.

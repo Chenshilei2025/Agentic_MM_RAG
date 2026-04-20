@@ -327,7 +327,7 @@ class Orchestrator:
             rec.status = PENDING
             rec.target_stage = "summary"
             state.push_feedback(rec.agent_id,
-                "DA requested an EVIDENCE SKETCH (Tier-2.5). Pick 2-5 of "
+                "DA requested an EVIDENCE SKETCH (Tier-2). Pick 2-5 of "
                 "the most relevant candidates from your retrieval, extract "
                 "ONE key sentence from each that directly supports your "
                 "finding, and call write_evidence(stage=\"sketch\", "
@@ -385,7 +385,7 @@ class Orchestrator:
                 log.info(f"[authorize-full] {rec.agent_id} already pending")
                 return
             # --- VoI gating: same policy as sketch but for the more expensive
-            # tier-3. Retry override allows DA to push through on the 2nd ask.
+            # Tier-3. Retry override allows DA to push through on the 2nd ask.
             from orchestrator.voi_gating import gate_request
             board = pool.status_board(include_terminated=True)
             snap_row = next((r for r in board
@@ -413,11 +413,11 @@ class Orchestrator:
             rec.target_stage = "full"
             rec.status = PENDING
             state.push_feedback(rec.agent_id,
-                                "produce tier-3 full evidence (authorized)")
+                                "produce Tier-3 full evidence (authorized)")
             self.queue.push(Task(new_task_id(), rec.agent_id, {"kind": "step"}))
             log.info(f"[authorize-full] {rec.agent_id}")
         elif name == "READ_ARCHIVE":
-            # DA pulls a previously-written tier-3 archive into the next
+            # DA pulls a previously-written Tier-3 archive into the next
             # prompt. Pulls the LATEST archive entry only (sub-agent may have
             # written multiple times; we surface the freshest).
             aid = args["agent_id"]
@@ -530,7 +530,7 @@ class Orchestrator:
 
             # Send feedback to sub-agent so it knows to write curated
             raw_flag = "with_raw" if with_raw else "summary_only"
-            state.push_feedback(aid, f"produce tier-2 curated evidence ({raw_flag}, authorized)")
+            state.push_feedback(aid, f"produce Tier-2 curated evidence ({raw_flag}, authorized)")
 
             if not hasattr(state, "retry_counts"):
                 state.retry_counts = {}
@@ -837,10 +837,11 @@ class Orchestrator:
                 return
 
         aid = new_agent_id()
-        # Sub-agents no longer emit tier-1 intent themselves — Orchestrator
-        # writes it on their behalf at spawn time. Sub-agent workflow is now
+        # Sub-agents skip the internal intent stage — Orchestrator registers
+        # them directly for summary (Tier-1). Sub-agent workflow is now
         # 2 tool calls (retrieval, write_evidence(summary)). This removes one
-        # decision point that 7B models frequently botched.
+        # decision point that 7B models frequently botched. Intent is only
+        # used internally for trace/debug, not shown to Decision Agent.
         rec = AgentRecord(
             agent_id=aid, agent_type=args["agent_type"],
             modality=args["modality"], goal=args["goal"],
@@ -1104,7 +1105,7 @@ class Orchestrator:
                         "citing the retrieved ids. Any other tool is rejected.")
             else:
                 # Both required calls have happened. If authorized for sketch
-                # or tier-3, allow one more write_evidence. Otherwise terminate.
+                # or Tier-3, allow one more write_evidence. Otherwise terminate.
                 if tool_name == "write_evidence" and (
                         pool.is_authorized_for_full(rec.agent_id) or
                         pool.is_authorized_for_sketch(rec.agent_id)):

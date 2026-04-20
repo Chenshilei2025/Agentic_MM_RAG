@@ -31,8 +31,8 @@ from tools.registry import tool
 from memory.evidence_pool import EvidencePool
 
 
-# Default recall count — 20 per Round 3 spec. Sub-agent reranks down to ~5.
-DEFAULT_RECALL_K = 20
+# Default recall count — 10 per Round 3+ spec. Sub-agent reranks down to ~5.
+DEFAULT_RECALL_K = 10
 
 
 def _resolve_text_modality(ctx: Dict[str, Any]) -> str:
@@ -161,11 +161,11 @@ def retrieval(query: str, modality: str,
 
 
 @tool("write_evidence",
-      "Record an evidence entry in the pool. Sub-agents call this TWICE per "
-      "lifetime: once for tier-1 intent, once for tier-2 summary. A third "
-      "call for stage='curated' happens only after DA issues "
-      "REQUEST_CURATED_EVIDENCE. For curated stage, cross-modal analysis "
-      "is performed automatically.",
+      "Record an evidence entry in the pool. Sub-agents call this ONCE per "
+      "lifetime for stage='summary' (Tier-1). Additional calls for "
+      "stage='sketch' (Tier-2) or stage='curated' (Tier-2) happen only after "
+      "DA issues REQUEST_EVIDENCE_SKETCH or REQUEST_CURATED_EVIDENCE. "
+      "For curated stage, cross-modal analysis is performed automatically.",
       {"type": "object",
        "properties": {"agent_id": {"type": "string", "description": "use '__self__'"},
                       "stage":    {"type": "string",

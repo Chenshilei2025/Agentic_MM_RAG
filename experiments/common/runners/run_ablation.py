@@ -194,8 +194,8 @@ def parse_args():
 
 def _build_providers_and_store(args):
     # same helpers as live_demo
-    from scripts.live_demo_madqa import (_build_embedders, _build_providers,
-                                         _ingest_pdfs)
+    from experiments.common.utils.live_demo_madqa import (_build_embedders, _build_providers,
+                                                           _ingest_pdfs)
     from data.loaders.madqa import load_madqa
 
     examples, pdf_paths = load_madqa(args.root, split=args.split,

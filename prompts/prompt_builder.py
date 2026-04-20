@@ -190,10 +190,10 @@ COMMAND VOCABULARY (your ONLY outputs)
   CONTINUE_RETRIEVAL(agent_id, hint?)
       Ask a sub-agent to perform another retrieval round; optional hint.
   REQUEST_FULL_EVIDENCE(agent_id)
-      Authorize ONE sub-agent to emit tier-3 (full) evidence — the complete
+      Authorize ONE sub-agent to emit Tier-3 (full) evidence — the complete
       raw hits with source ids. Use this sparingly: only when a sub-agent's
-      tier-2 summary is promising but you need the raw material for the
-      final answer. Authorization is consumed by a single tier-3 write.
+      Tier-1 summary is promising but you need the raw material for the
+      final answer. Authorization is consumed by a single Tier-3 write.
   STOP_TASK(reason, answer, confidence)
       Terminate the whole run. Emit this when stopping conditions hold.
 
@@ -298,13 +298,13 @@ PARALLELISM POLICY
   - Redundancy: never spawn duplicate (modality, goal) pairs
   - Budget: concurrent active agents <= 4 unless clearly needed
   Sub-agents spawned in one SPAWN_AGENTS call execute in parallel and each
-  autonomously pushes tier-1 (intent) and tier-2 (summary), then STOPS.
+  autonomously pushes Tier-1 (summary), then STOPS.
 
 STOPPING RULE
 Emit STOP_TASK ONLY when ALL of:
   (a) max_confidence > 0.9           ← STRICT: 0.85 is NOT enough
   (b) coverage >= 0.8
-  (c) at least one tier-2 summary directly answers the user query.
+  (c) at least one Tier-1 summary directly answers the user query.
 
 If max_confidence is below 0.9, you MUST either:
   - CONTINUE_RETRIEVAL on a low-confidence agent with a refining hint, OR
@@ -319,9 +319,9 @@ improves dramatically with cross-modal agreement.
 HEURISTICS
   - First turn on cross-modal query   -> SPAWN_AGENTS (one per needed index)
   - First turn on single-index query  -> SPAWN_AGENT
-  - Thin tier-2 coverage in an index  -> SPAWN_AGENT on that index
+  - Thin Tier-1 coverage in an index  -> SPAWN_AGENT on that index
   - Sub-agent queried wrong index     -> SWITCH_MODALITY
-  - Weak tier-2 summary               -> CONTINUE_RETRIEVAL with a hint
+  - Weak Tier-1 summary               -> CONTINUE_RETRIEVAL with a hint
   - Summary promising, need raw cite  -> REQUEST_FULL_EVIDENCE
   - Summary redundant / off-track     -> KILL_AGENT
   - Thresholds met                    -> STOP_TASK
@@ -336,12 +336,12 @@ HARD RULES
 PROGRESSIVE DISCLOSURE — USE LIKE A SCALPEL, NOT A SLEDGEHAMMER
 ================================================================
 You see each sub-agent's findings at THREE possible levels:
-  Tier-2  summary (always)       — finding + coverage + 3-axis confidence
-  Tier-2.5 sketch (you request it) — 2-5 key sentences with ids
-  Tier-3   full (you request it)   — raw content + all sources
+  Tier-1  summary (always)       — finding + reasoning + task_completion + confidence + local_gaps
+  Tier-2  sketch (you request it) — 2-5 key evidence excerpts with ids
+  Tier-3  full (you request it)   — raw content + all sources
 
 Order of escalation (cheap → expensive):
-  1. Tier-2 is enough when confidence axes are all high AND coverage ≥ 0.8
+  1. Tier-1 is enough when confidence axes are all high AND coverage ≥ 0.8
   2. Request SKETCH (REQUEST_EVIDENCE_SKETCH) when:
        - one axis is mid-range (0.5-0.8)
        - you want to verify a specific claim
@@ -516,7 +516,7 @@ can trust. Your job is to:
   2. JUDGE which ones actually answer your goal (not just "sound close").
   3. DROP near-duplicates (two candidates saying essentially the same thing
      → pick the better one, ignore the other).
-  4. Cite the top 3-5 you chose in your tier-2 summary.
+  4. Cite the top 3-5 you chose in your Tier-1 summary.
 You ARE the reranker. The LLM weight spent on reading 20 → picking 5 is
 WHY you exist. Don't just dump the top-K-by-score; actually evaluate.
 
@@ -536,7 +536,7 @@ CALL 2 (always): write_evidence(stage="summary", ...)
   READ each of the ~20 candidates you received.
   RERANK them mentally by true relevance to your goal.
   DEDUPE — ignore candidates that overlap with ones you're already citing.
-  WRITE a tier-2 summary citing 3-5 ids of the ones you kept.
+  WRITE a Tier-1 summary citing 3-5 ids of the ones you kept.
   Report the n_kept count accurately (not n_retrieved).
 
 After CALL 2, you are done. The Orchestrator terminates you.
@@ -549,51 +549,63 @@ HARD RULES — violations will be blocked by the Orchestrator
   - You pick the retrieval tool that MATCHES your modality. Text sub-agent
     does not call retrieval_visual and vice versa.
   - You NEVER call spawn_agent, stop_agent, or any tool you weren't given.
-  - You do NOT write tier-1 intent (Orchestrator writes it for you).
-  - You do NOT write tier-2 curated or tier-3 full unless DA explicitly
+  - You do NOT write Tier-2 curated or Tier-3 full unless DA explicitly
     authorized it (you'll see a FEEDBACK line like
-    "produce tier-2 curated evidence (authorized)" when that happens).
+    "produce Tier-2 curated evidence (authorized)" when that happens).
 
 ================================================================
-TIER-2 PAYLOAD — the only tier you ever write
+TIER-1 PAYLOAD — the only tier you ever write (summary stage)
 ================================================================
 Call: write_evidence(agent_id="__self__", stage="summary", payload={...})
 
-Payload shape (ALL fields required):
+CORE PHILOSOPHY: Help the Decision Agent understand WHAT you found, WHY
+it supports your goal, and WHAT'S MISSING from your LOCAL modality perspective.
+
+Payload shape (ALL fields required unless marked OPTIONAL):
 {
-  "finding":      "<ONE sentence answering your goal, <=200 chars>",
-  "coverage": {
-    "covered":    <float in [0,1] — how fully your goal is answered>,
-    "gaps":       [<short strings naming things you DIDN'T cover>]
+  // === Core Finding ===
+  "finding":      "<ONE sentence answering your goal, <=300 chars>",
+  "reasoning":    "<2-3 sentences explaining WHY these evidence support your conclusion>",
+
+  // === Task Completion (three-category breakdown) ===
+  "task_completion": {
+    "addressed":   ["aspect1", "aspect2"],  // Things you FULLY answered
+    "partial":     ["aspect3"],             // Things you PARTIALLY answered
+    "uncovered":   ["aspect4"],             // Things you DID NOT find (critical!)
   },
+
+  // === Confidence (three-axis, redefined for clarity) ===
   "confidence": {
-    "retrieval_score":    "<high|medium|low|unclear> OR float in [0,1]",
-    "evidence_agreement": "<high|medium|low|unclear> OR float in [0,1]",
-    "coverage":           "<high|medium|low|unclear> OR float in [0,1]"
+    "retrieval_quality":    "<high|medium|low|unclear> OR float in [0,1]",
+                           // How well retrieval returned relevant candidates
+    "evidence_coherence":  "<high|medium|low|unclear> OR float in [0,1]",
+                           // Do the cited candidates agree with each other?
+    "reasoning_strength":  "<high|medium|low|unclear> OR float in [0,1]"
+                           // How strongly does evidence support the finding?
   },
-  "n_retrieved":  <int, how many candidates retrieval returned>,
-  "n_kept":       <int, how many you cited>,
-  "top_score":    <float, score of your top cited candidate>,
-  "score_spread": <float, top_score minus score of your lowest cited one>,
-  "caveat":       <"thin_recall"|"near_duplicates"|"off_topic"|"conflicting_candidates"|null>,
+
+  // === Local Gaps (what THIS modality CANNOT answer) ===
+  "local_gaps": {
+    "critical":             ["specific questions this modality cannot answer"],
+    "suggested_modalities": ["doc_text", "video_visual"]  // Which modalities might help
+  },
+
+  // === Citations ===
   "citations":    [
                     // Prefer this RICH form when the retrieval candidate
                     // carries meta (asset_type, source, page, t, frame_idx):
                     {"id":"dv_017","asset_type":"image","source":"paper1.pdf","page":3},
-                    // id-only strings are also accepted (legacy). The
-                    // Orchestrator auto-enriches them from the retrieval
-                    // result's meta, so "dv_017" alone works too:
+                    // id-only strings are also accepted (legacy):
                     "dt_022"
                   ],
-  "uncertainty": {
-    "missing_aspects":    [<things the user wants that you could NOT find>],
-    "low_support_claims": [<claims in your finding with weak support>]
-  },
-  "rationale":    "<one short sentence justifying your confidence>",
 
-  // ---- P2 reflection signals (ALL OPTIONAL but strongly encouraged) ----
-  // These help the Decision Agent decide whether to switch modalities,
-  // rewrite the query, abort and respawn you, or accept your result.
+  // === Retrieval Metadata (for diagnostics) ===
+  "n_retrieved":  <int, how many candidates retrieval returned>,
+  "n_kept":       <int, how many you cited after reranking>,
+  "top_score":    <float, score of your top cited candidate>,
+  "score_spread": <float, top_score minus score of your lowest cited one>,
+
+  // ---- OPTIONAL reflection signals (strongly encouraged) ----
   "evidence_mode": "<text_native | caption_only | raw_visual | omit>",
     // text_native  — your modality is doc_text / video_text; you read original text
     // caption_only — visual modality but your model only saw captions, NOT pixels
@@ -606,20 +618,30 @@ Payload shape (ALL fields required):
     // Set fit=false ONLY when the goal genuinely belongs in a different modality
     // (e.g. you're doc_text but the goal asks about a diagram's layout).
   "query_rewrite_suggestion": "<short rewrite or null>"
-    // After seeing your retrieved candidates, suggest a better query if you
-    // believe the original goal could have been phrased to match this index
-    // better. DA may use this in REVISE_SUBTASK or ABORT_AND_RESPAWN.
+    // Suggest a better query after seeing your retrieved candidates.
 }
 
 CONFIDENCE AXES (prefer enum "high"/"medium"/"low"/"unclear"):
-  retrieval_score     = how well retrieval returned relevant candidates
+  retrieval_quality    = how well retrieval returned relevant candidates
                         (high: top_score > 0.8, medium: 0.5-0.8, low: <0.5)
-  evidence_agreement  = do top candidates agree with each other?
+  evidence_coherence  = do top candidates agree with each other?
                         (high: all consistent, low: contradicting)
-  coverage            = does your finding fully answer the goal?
-                        (high: complete, low: partial)
+  reasoning_strength  = how strongly does evidence support the finding?
+                        (high: direct evidence, low: inference required)
 
-TIER-2.5 SKETCH (only if DA issued REQUEST_EVIDENCE_SKETCH — you'll see
+TASK COMPLETION GUIDE:
+  - addressed:   Your finding DIRECTLY answers this aspect of the goal
+  - partial:     You found SOME relevant info but it's incomplete
+  - uncovered:   You found NOTHING about this aspect (critical for DA decisions!)
+
+LOCAL GAPS PHILOSOPHY:
+  The Decision Agent needs to know what YOUR modality CANNOT provide.
+  Be specific about what's missing, not just "more context needed".
+  Suggest which OTHER modality might have the answer (helps DA plan).
+  Example: local_gaps.critical=["diagram layout"]
+           local_gaps.suggested_modalities=["doc_visual"]
+
+TIER-2 SKETCH (only if DA issued REQUEST_EVIDENCE_SKETCH — you'll see
 this in FEEDBACK):
   Choose the shape appropriate to your modality.
 
@@ -655,18 +677,15 @@ this in FEEDBACK):
 
   FIELD SEMANTICS:
     relevance     — how relevant this candidate is to YOUR GOAL (0-1).
-                    Roughly the retrieval score, re-judged by you.
-    evidence_hit  — how much this SINGLE CANDIDATE contributes to actually
-                    answering the DA's subtask (0-1). A highly relevant
-                    candidate can still have LOW hit if it gives background
-                    context but not the specific fact. A low-relevance
-                    candidate rarely has high hit.
+    evidence_hit  — how much this SINGLE CANDIDATE contributes to answering
+                    the subtask (0-1). A highly relevant candidate can still
+                    have LOW hit if it's background context, not the answer.
 
   Pick 2-5 candidate ids — only ids from your own retrieval results.
   Never invent ids. Never reuse an id across your sketch entries.
 
-CONFIDENCE CALIBRATION (enforced — over-confidence is flagged SUSPICIOUS):
-  If ANY axis > 0.8 (or "high"), you MUST have n_kept >= 2 AND caveat = null.
+CONFIDENCE CALIBRATION (enforced — over-confidence is flagged):
+  If ANY confidence axis > 0.8 (or "high"), you MUST have n_kept >= 2.
 
 CITATIONS RULE (enforced — fabrication is rejected):
   Every id in citations MUST appear in the retrieval results you just received.
@@ -788,8 +807,8 @@ class PromptBuilder:
                         f"{r['status']:<8} conf={conf_str} "
                         f"cov={cov:.2f} (stale) "
                         f"| \"{finding_peek}...\"")
-            susp = " ⚠SUSPICIOUS" if r["suspicious"] else ""
-            cav = f" caveat={r['caveat']}" if r["caveat"] else ""
+            susp = " ⚠SUSPICIOUS" if r.get("suspicious") else ""
+            cav = f" caveat={r['caveat']}" if r.get("caveat") else ""
             cits = r.get("citations") or []
             nc = len(cits)
             unv = len(r.get("unverified_citations", []))
@@ -857,7 +876,7 @@ class PromptBuilder:
             tokens = budget.get("tokens_used", 0)
             budget_line = f"BUDGET: steps={steps}  tokens={tokens}\n"
 
-        # Render Tier-2.5 sketches as compact text blocks if available
+        # Render Tier-2 sketches as compact text blocks if available
         sketch_text = ""
         if sketches:
             lines = []
@@ -878,7 +897,7 @@ class PromptBuilder:
                                      f"(rel={rel:.2f}{hit_str}) "
                                      f"{content[:180]}")
             if lines:
-                sketch_text = ("\n\nEVIDENCE SKETCHES (Tier-2.5):  "
+                sketch_text = ("\n\nEVIDENCE SKETCHES (Tier-2):  "
                                "rel=relevance, hit=per-candidate subtask "
                                "hit-rate (0-1)\n" + "\n".join(lines))
 
@@ -1093,7 +1112,7 @@ class PromptBuilder:
             f"METRICS: coverage={coverage:.2f}  max_conf={max_conf:.2f}"
             f"{budget_remaining_text}\n"
             f"RECENTLY SPAWNED: {recent_spawns or 'none'}\n"
-            f"ARCHIVE (tier-3 ready): {archived_agents or 'none'}\n"
+            f"ARCHIVE (Tier-3 ready): {archived_agents or 'none'}\n"
             f"AGGREGATE GAPS: {all_gaps[:5] or 'none'}\n"
             f"AGGREGATE MISSING ASPECTS: {all_missing[:5] or 'none'}"
             f"{subtask_text}"
@@ -1160,12 +1179,12 @@ class PromptBuilder:
                 "→ This is TURN 2. Retrieval is DONE. "
                 "You MUST call `write_evidence` with stage=\"summary\" now. "
                 "Read the 10 candidates below, cite the most relevant ids, "
-                "fill all tier-2 payload fields. DO NOT call retrieval again."
+                "fill all Tier-1 payload fields. DO NOT call retrieval again."
             )
         else:
             next_action_hint = (
                 "→ You have completed both required tool calls. "
-                "If you see FEEDBACK about tier-3 authorization, emit "
+                "If you see FEEDBACK about Tier-3 authorization, emit "
                 "write_evidence(stage=\"full\"). Otherwise stop — emit any "
                 "valid tool call to exit."
             )
