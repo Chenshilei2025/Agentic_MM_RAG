@@ -1,0 +1,28 @@
+system:
+  max_steps: 40
+  stopping:
+    confidence_threshold: 0.9
+    coverage_threshold: 0.8
+
+providers:
+  default: anthropic
+  anthropic:
+    model: claude-sonnet-4-5
+    max_tokens: 1024
+
+agents:
+  decision:
+    allowed_tools:
+      - spawn_agent
+      - stop_agent
+      - feedback
+      - read_evidence
+      - report
+  subagent:
+    allowed_tools:
+      - retrieval
+      - write_evidence
+      - read_evidence
+
+retrieval:
+  k_default: 5
