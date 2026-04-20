@@ -25,4 +25,4 @@ agents:
       - read_evidence
 
 retrieval:
-  k_default: 5
+  k_default: 10  # 与DEFAULT_RECALL_K保持一致 (Round 3+: 10个候选，rerank到5个)
